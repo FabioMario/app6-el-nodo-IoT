@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel IoT · Clase 6</title>
+<!--
+  Panel web de la Clase 6 (Sistemas Embebidos, UCU 2026).
+
+  Es OTRO TERMINAL del broker, igual que la placa: se suscribe a los temas
+  ucu-se2026/+/temperatura, /estado y /eco, y publica en .../comando. La
+  placa y el panel no se hablan nunca directamente.
+
+  Se abre con doble clic (file://) o desde cualquier servidor. Necesita
+  Internet: el broker y la biblioteca MQTT.js. Con ?demo al final de la
+  dirección simula tres placas y no se conecta a nada.
+
+  Lo que llega de un broker público lo puede haber escrito cualquiera: todo
+  se valida, y en la página solo se escribe con textContent, nunca innerHTML.
+-->
+<style>
+  :root {
+    --azul: #1a3c6e;
+    --azul-claro: #d6e4f5;
+    --fondo: #f4f6fa;
+    --tarjeta: #ffffff;
+    --texto: #1d2733;
+    --suave: #5b6878;
+    --borde: #d5dde8;
+    --ok: #2e7d4f;
+    --ok-fondo: #e3f2e8;
+    --mal: #b3261e;
+    --mal-fondo: #fbe9e7;
+    --aviso: #9a5b00;
+    --aviso-fondo: #fff2db;
+    --gris-fondo: #eceff3;
+    --linea: #1a3c6e;
+    --area: rgba(26, 60, 110, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --azul: #8fb4e8;
+      --azul-claro: #22354f;
+      --fondo: #12171e;
+      --tarjeta: #1b222c;
+      --texto: #e4e9f0;
+      --suave: #9aa7b8;
+      --borde: #2e3948;
+      --ok: #6fcf97;
+      --ok-fondo: #1d3527;
+      --mal: #ff8a80;
+      --mal-fondo: #3a1f1d;
+      --aviso: #ffc266;
+      --aviso-fondo: #3a2c14;
+      --gris-fondo: #262f3b;
+      --linea: #8fb4e8;
+      --area: rgba(143, 180, 232, 0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    --azul: #8fb4e8;
+    --azul-claro: #22354f;
+    --fondo: #12171e;
+    --tarjeta: #1b222c;
+    --texto: #e4e9f0;
+    --suave: #9aa7b8;
+    --borde: #2e3948;
+    --ok: #6fcf97;
+    --ok-fondo: #1d3527;
+    --mal: #ff8a80;
+    --mal-fondo: #3a1f1d;
+    --aviso: #ffc266;
+    --aviso-fondo: #3a2c14;
+    --gris-fondo: #262f3b;
+    --linea: #8fb4e8;
+    --area: rgba(143, 180, 232, 0.14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+  header {
+    background: var(--azul);
+    color: #fff;
+    padding: 14px 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) header { background: #1a3c6e; }
+  }
+  :root[data-theme="dark"] header { background: #1a3c6e; }
+  header h1 { margin: 0; font-size: 1.35em; font-weight: 600; }
+  header p { margin: 2px 0 0; opacity: 0.85; font-size: 0.92em; }
+  .contenedor { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+
+  .controles {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end;
+    background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 8px;
+    padding: 12px 14px; margin: 14px 0;
+  }
+  .campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .campo label { font-size: 0.8em; color: var(--suave); font-weight: 600; }
+  select, input, button {
+    font: inherit; color: inherit; background: var(--tarjeta);
+    border: 1px solid var(--borde); border-radius: 6px; padding: 6px 9px;
+  }
+  input { width: 12em; max-width: 100%; }
+  button { cursor: pointer; }
+  button.primario { background: var(--azul); border-color: var(--azul); color: #fff; font-weight: 600; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) button.primario { color: #12171e; }
+  }
+  :root[data-theme="dark"] button.primario { color: #12171e; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .estado-conexion { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.9em; }
+  .pastilla { padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 0.85em; white-space: nowrap; }
+  .pastilla.ok { background: var(--ok-fondo); color: var(--ok); }
+  .pastilla.mal { background: var(--mal-fondo); color: var(--mal); }
+  .pastilla.aviso { background: var(--aviso-fondo); color: var(--aviso); }
+  .pastilla.gris { background: var(--gris-fondo); color: var(--suave); }
+  .detalle-conexion { color: var(--suave); font-size: 0.85em; }
+
+  .ayuda { color: var(--suave); font-size: 0.9em; margin: 0 0 12px; }
+  .ayuda code { background: var(--gris-fondo); padding: 1px 5px; border-radius: 4px; }
+
+  #tablero {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  }
+  .vacio {
+    grid-column: 1 / -1; text-align: center; color: var(--suave);
+    border: 1px dashed var(--borde); border-radius: 8px; padding: 30px 16px;
+  }
+  .tarjeta {
+    background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 8px;
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  }
+  .tarjeta.desconectada { opacity: 0.72; }
+  .cabecera { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .id { font-weight: 700; color: var(--azul); font-family: ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .lectura { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .temp { font-size: 2.3em; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .unidad { font-size: 0.45em; color: var(--suave); font-weight: 400; margin-left: 2px; }
+  .edad { color: var(--suave); font-size: 0.9em; }
+  .edad.viejo { color: var(--aviso); font-weight: 600; }
+  .grafica { width: 100%; height: 92px; display: block; }
+  .grafica .marco { fill: none; stroke: var(--borde); }
+  .grafica .linea { fill: none; stroke: var(--linea); stroke-width: 2; stroke-linejoin: round; }
+  .grafica .area { fill: var(--area); stroke: none; }
+  .grafica text { fill: var(--suave); font-size: 10px; }
+  .datos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 10px; font-size: 0.85em; }
+  .datos div { min-width: 0; }
+  .datos dt { color: var(--suave); font-size: 0.85em; }
+  .datos dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .acciones { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .acciones select, .acciones button { padding: 4px 8px; font-size: 0.88em; }
+  .nota { font-size: 0.82em; color: var(--suave); min-height: 1.2em; }
+
+  details { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 8px; margin: 14px 0; padding: 8px 14px; }
+  summary { cursor: pointer; font-weight: 600; color: var(--azul); }
+  #mensajes { list-style: none; margin: 8px 0 4px; padding: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8em; max-height: 260px; overflow: auto; }
+  #mensajes li { padding: 2px 0; border-bottom: 1px solid var(--borde); overflow-wrap: anywhere; }
+  #mensajes .tema { color: var(--azul); }
+  #mensajes .ret { color: var(--aviso); }
+  footer { color: var(--suave); font-size: 0.85em; margin: 6px 0 24px; }
+
+  @media (max-width: 560px) {
+    .estado-conexion { margin-left: 0; width: 100%; }
+    .temp { font-size: 2em; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.15.2/dist/mqtt.min.js"></script>
+</head>
+<body>
+<header>
+  <div class="contenedor">
+    <h1>Panel IoT · Clase 6</h1>
+    <p>Las placas publican, el panel se suscribe. Los dos son terminales del mismo broker.</p>
+  </div>
+</header>
+
+<div class="contenedor">
+  <section class="controles" aria-label="Conexión con el broker">
+    <div class="campo">
+      <label for="broker">Broker</label>
+      <select id="broker"></select>
+    </div>
+    <div class="campo">
+      <label for="raiz">Raíz de los temas</label>
+      <input id="raiz" value="ucu-se2026" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="campo">
+      <label for="filtro">Filtrar placas</label>
+      <input id="filtro" placeholder="kaluga-…" spellcheck="false" autocomplete="off">
+    </div>
+    <button id="boton-conectar" class="primario">Conectar</button>
+    <div class="estado-conexion" aria-live="polite">
+      <span id="pastilla" class="pastilla gris">desconectado</span>
+      <span id="detalle" class="detalle-conexion"></span>
+    </div>
+  </section>
+
+  <p class="ayuda">
+    Compila <code>nodo_mqtt</code> con el mismo broker, flashea y espera: tu placa aparece sola, con el ID que imprime al arrancar
+    (<code>kaluga-</code> y seis cifras). Las órdenes viajan por <code>…/&lt;ID&gt;/comando</code>; la placa confirma el periodo
+    nuevo republicando su estado.
+  </p>
+
+  <main id="tablero" aria-live="polite">
+    <div class="vacio" id="vacio">Sin placas todavía. Conéctate al broker y espera la primera publicación.</div>
+  </main>
+
+  <details id="registro">
+    <summary>Mensajes recibidos <span id="contador">(0)</span></summary>
+    <ol id="mensajes"></ol>
+  </details>
+
+  <footer>
+    Broker público: cualquiera puede leer lo que se publica en estos temas, y también publicar en ellos, órdenes incluidas.
+    No pongas aquí nada que no publicarías en una pizarra.
+  </footer>
+</div>
+
+<template id="plantilla">
+  <article class="tarjeta">
+    <div class="cabecera">
+      <span class="id"></span>
+      <span class="pastilla gris estado">sin estado</span>
+    </div>
+    <div class="lectura">
+      <span class="temp">--<span class="unidad">°C</span></span>
+      <span class="edad"></span>
+    </div>
+    <svg class="grafica" viewBox="0 0 300 92" preserveAspectRatio="none" role="img" aria-label="Temperatura de los últimos 10 minutos"></svg>
+    <dl class="datos">
+      <div><dt>RSSI</dt><dd class="rssi">--</dd></div>
+      <div><dt>Periodo</dt><dd class="periodo">--</dd></div>
+      <div><dt>Secuencia</dt><dd class="seq">--</dd></div>
+      <div><dt>Huecos</dt><dd class="huecos">0</dd></div>
+      <div><dt>IP</dt><dd class="ip">--</dd></div>
+      <div><dt>Ping</dt><dd class="rtt">--</dd></div>
+    </dl>
+    <div class="acciones">
+      <button class="identificar" title="La placa parpadea en blanco 5 s">Identificar</button>
+      <button class="ping" title="Mide la ida y vuelta panel → broker → placa → broker → panel">Ping</button>
+      <select class="selector-periodo" aria-label="Periodo de medida">
+        <option value="">Periodo…</option>
+        <option value="1">1 s</option>
+        <option value="2">2 s</option>
+        <option value="5">5 s</option>
+        <option value="10">10 s</option>
+        <option value="30">30 s</option>
+        <option value="60">60 s</option>
+      </select>
+    </div>
+    <div class="nota"></div>
+  </article>
+</template>
+
+<script>
+'use strict';
+
+/* ---------------------------------------------------------------- datos */
+
+/* Los dos brokers públicos del ejemplo, por WebSocket seguro (wss). El
+ * navegador no puede abrir el puerto 1883 (TCP puro): habla MQTT dentro de
+ * un WebSocket, y el broker traduce. La placa y el panel no necesitan usar
+ * el mismo transporte, solo el mismo broker. */
+const BROKERS = {
+  hivemq: { nombre: 'HiveMQ · broker.hivemq.com', url: 'wss://broker.hivemq.com:8884/mqtt' },
+  emqx:   { nombre: 'EMQX · broker.emqx.io',      url: 'wss://broker.emqx.io:8084/mqtt' },
+};
+
+const MAX_PLACAS = 60;            /* un broker público recibe de todo: tope */
+const MAX_BYTES = 512;            /* ningún mensaje legítimo es más largo   */
+const VENTANA_MS = 10 * 60 * 1000;
+const MAX_MENSAJES = 80;
+const RE_ID = /^[A-Za-z0-9_-]{1,32}$/;
+const RE_IP = /^\d{1,3}(\.\d{1,3}){3}$/;
+const PARAMS = new URLSearchParams(location.search);
+const DEMO = PARAMS.has('demo');
+/* ?tema=claro o ?tema=oscuro fuerzan el tema; si no, manda el del sistema. */
+if (PARAMS.get('tema') === 'claro') { document.documentElement.dataset.theme = 'light'; }
+if (PARAMS.get('tema') === 'oscuro') { document.documentElement.dataset.theme = 'dark'; }
+
+const formato = new Intl.NumberFormat('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const app = {
+  cliente: null,
+  raiz: 'ucu-se2026',
+  placas: new Map(),
+  pings: new Map(),
+  mensajes: 0,
+  espera: 5000,              /* reintento con espera creciente */
+  temporizador: null,
+  quiereConectado: false,
+};
+
+const $ = (id) => document.getElementById(id);
+const selBroker = $('broker'), inRaiz = $('raiz'), inFiltro = $('filtro');
+const botonConectar = $('boton-conectar');
+
+/* La preferencia se guarda en el navegador, si se puede; si no, da igual. */
+function leerPreferencia(clave, porDefecto) {
+  try { return localStorage.getItem('panel6.' + clave) ?? porDefecto; } catch (e) { return porDefecto; }
+}
+function guardarPreferencia(clave, valor) {
+  try { localStorage.setItem('panel6.' + clave, valor); } catch (e) { /* sin almacenamiento */ }
+}
+
+/* ------------------------------------------------------------- conexión */
+
+function limpiarRaiz(texto) {
+  /* Sin comodines ni barras al principio o al final: la raíz es un prefijo. */
+  const r = texto.trim().replace(/[#+]/g, '').replace(/^\/+|\/+$/g, '');
+  return r || 'ucu-se2026';
+}
+
+function ponerEstado(clase, texto, detalle) {
+  const p = $('pastilla');
+  p.className = 'pastilla ' + clase;
+  p.textContent = texto;
+  $('detalle').textContent = detalle || '';
+}
+
+function conectar() {
+  cerrar(false);
+  app.quiereConectado = true;
+  app.raiz = limpiarRaiz(inRaiz.value);
+  inRaiz.value = app.raiz;
+  guardarPreferencia('raiz', app.raiz);
+  guardarPreferencia('broker', selBroker.value);
+
+  if (DEMO) { arrancarDemo(); return; }
+  if (typeof mqtt === 'undefined') {
+    ponerEstado('mal', 'sin MQTT.js', 'No se pudo cargar la biblioteca: ¿hay Internet?');
+    return;
+  }
+
+  const broker = BROKERS[selBroker.value] || BROKERS.hivemq;
+  ponerEstado('aviso', 'conectando…', broker.url);
+  botonConectar.textContent = 'Desconectar';
+
+  /* MQTT 5 en el panel; la placa usa 3.1.1. El broker habla con los dos. */
+  const cliente = mqtt.connect(broker.url, {
+    clientId: 'panel-' + Math.random().toString(16).slice(2, 10),
+    protocolVersion: 5,
+    clean: true,
+    keepalive: 30,
+    connectTimeout: 10000,
+    reconnectPeriod: 0,      /* los reintentos los decide el panel, con espera creciente */
+  });
+  app.cliente = cliente;
+
+  cliente.on('connect', () => {
+    app.espera = 5000;
+    ponerEstado('ok', 'conectado', broker.nombre);
+    const temas = ['temperatura', 'estado', 'eco'].map((t) => app.raiz + '/+/' + t);
+    cliente.subscribe(temas, { qos: 1 }, (err) => {
+      if (err) { ponerEstado('mal', 'suscripción rechazada', String(err.message || err)); }
+    });
+  });
+
+  cliente.on('message', (tema, carga, paquete) => procesar(tema, carga, paquete.retain));
+
+  cliente.on('error', (err) => {
+    /* En MQTT 5 el broker explica el rechazo. 0x9F y 0x89 son los límites
+     * de un broker público: demasiadas conexiones seguidas desde esta IP. */
+    const codigo = err && err.code;
+    let texto = String((err && err.message) || err);
+    if (codigo === 0x9F || codigo === 0x89) {
+      texto = 'El broker limita las conexiones desde esta IP: se reintentará con más espera.';
+      app.espera = Math.max(app.espera, 30000);
+    }
+    ponerEstado('mal', 'error', texto);
+  });
+
+  cliente.on('close', () => {
+    if (app.cliente !== cliente) { return; }
+    if (!app.quiereConectado) { ponerEstado('gris', 'desconectado'); return; }
+    const espera = app.espera + Math.floor(Math.random() * app.espera / 4);
+    ponerEstado('aviso', 'reintento en ' + Math.round(espera / 1000) + ' s', broker.url);
+    app.temporizador = setTimeout(conectar, espera);
+    app.espera = Math.min(app.espera * 2, 60000);
+  });
+}
+
+function cerrar(porUsuario) {
+  clearTimeout(app.temporizador);
+  if (porUsuario) { app.quiereConectado = false; }
+  if (app.cliente) {
+    const c = app.cliente;
+    app.cliente = null;
+    c.end(true);
+  }
+  pararDemo();
+  if (porUsuario) {
+    ponerEstado('gris', 'desconectado');
+    botonConectar.textContent = 'Conectar';
+  }
+}
+
+function publicar(id, texto) {
+  const tema = app.raiz + '/' + id + '/comando';
+  if (DEMO) { demoOrden(id, texto); return true; }
+  if (!app.cliente || !app.cliente.connected) { return false; }
+  /* Una orden NUNCA se retiene: si no, la placa la volvería a ejecutar en
+   * cada reconexión. */
+  app.cliente.publish(tema, texto, { qos: 1, retain: false });
+  return true;
+}
+
+/* ----------------------------------------------------------- mensajes */
+
+function procesar(tema, carga, retenido) {
+  app.mensajes++;
+  $('contador').textContent = '(' + app.mensajes + ')';
+
+  if (!tema.startsWith(app.raiz + '/')) { return; }
+  const partes = tema.slice(app.raiz.length + 1).split('/');
+  if (partes.length !== 2) { return; }
+  const [id, tipo] = partes;
+
+  /* Entrada no confiable: identificador con forma de identificador, tamaño
+   * razonable, JSON que se pueda leer y valores dentro de rango. */
+  if (!RE_ID.test(id)) { return; }
+  if (carga.length > MAX_BYTES) { return; }
+  const texto = new TextDecoder().decode(carga);
+  anotar(tema, texto, retenido);
+  if (texto === '') { return; }                /* retenido borrado */
+
+  const placa = obtenerPlaca(id);
+  if (!placa) { return; }
+
+  if (tipo === 'temperatura') {
+    const d = leerJSON(texto);
+    if (!d) { return; }
+    const t = Number(d.t);
+    if (!Number.isFinite(t) || t < -40 || t > 150) { return; }
+    const seq = Number.isInteger(d.seq) && d.seq >= 0 ? d.seq : null;
+    const edad = Number.isFinite(d.edad) ? Math.min(Math.max(d.edad, 0), 24 * 3600 * 1000) : 0;
+    const ahora = Date.now();
+
+    if (seq !== null && placa.seq !== null) {
+      if (seq > placa.seq + 1) { placa.huecos += seq - placa.seq - 1; }
+      else if (seq < placa.seq) { placa.reinicios++; }      /* la placa arrancó otra vez */
+    }
+    if (seq !== null) { placa.seq = seq; }
+    placa.t = t;
+    placa.rssi = Number.isInteger(d.rssi) && d.rssi < 0 && d.rssi > -128 ? d.rssi : null;
+
+    if (retenido) {
+      /* Un retenido es el ÚLTIMO VALOR CONOCIDO, pero sin fecha: la placa no
+       * tiene reloj y "edad" se midió al publicarlo, quién sabe cuándo. Se
+       * enseña el número y no se dibuja. */
+      placa.retenido = true;
+      placa.llegada = null;
+    } else {
+      placa.retenido = false;
+      placa.llegada = ahora;
+      /* Cada punto, en el instante en que se MIDIÓ: llegada menos lo que la
+       * muestra esperó en la cola de la placa. */
+      placa.puntos.push({ x: ahora - edad, y: t });
+      placa.puntos.sort((a, b) => a.x - b.x);
+      while (placa.puntos.length && placa.puntos[0].x < ahora - VENTANA_MS) { placa.puntos.shift(); }
+    }
+  } else if (tipo === 'estado') {
+    const d = leerJSON(texto);
+    if (!d) { return; }
+    placa.estado = d.estado === 'en_linea' ? 'en_linea' : (d.estado === 'desconectado' ? 'desconectado' : null);
+    if (typeof d.ip === 'string' && RE_IP.test(d.ip)) { placa.ip = d.ip; }
+    if (Number.isInteger(d.periodo) && d.periodo >= 1 && d.periodo <= 600) {
+      if (placa.periodoPedido === d.periodo) {
+        nota(placa, 'La placa confirmó el periodo de ' + d.periodo + ' s.');
+        placa.periodoPedido = null;
+      }
+      placa.periodo = d.periodo;
+    }
+  } else if (tipo === 'eco') {
+    const clave = id + ':' + texto;
+    if (app.pings.has(clave)) {
+      placa.rtt = Date.now() - app.pings.get(clave);
+      app.pings.delete(clave);
+      nota(placa, 'Ida y vuelta: ' + placa.rtt + ' ms.');
+    }
+  } else {
+    return;
+  }
+  pintar(placa);
+}
+
+function leerJSON(texto) {
+  try {
+    const d = JSON.parse(texto);
+    return (d && typeof d === 'object' && !Array.isArray(d)) ? d : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function anotar(tema, texto, retenido) {
+  const li = document.createElement('li');
+  const hora = new Date().toLocaleTimeString('es-UY');
+  const t = document.createElement('span'); t.className = 'tema'; t.textContent = tema;
+  li.append(hora + '  ', t, '  ' + (texto.length > 120 ? texto.slice(0, 120) + '…' : texto));
+  if (retenido) {
+    const r = document.createElement('span'); r.className = 'ret'; r.textContent = '  [retenido]';
+    li.append(r);
+  }
+  const lista = $('mensajes');
+  lista.prepend(li);
+  while (lista.children.length > MAX_MENSAJES) { lista.lastChild.remove(); }
+}
+
+/* ------------------------------------------------------------- tarjetas */
+
+function obtenerPlaca(id) {
+  if (app.placas.has(id)) { return app.placas.get(id); }
+  if (app.placas.size >= MAX_PLACAS) { return null; }
+
+  const nodo = $('plantilla').content.firstElementChild.cloneNode(true);
+  const placa = {
+    id, nodo, t: null, rssi: null, seq: null, huecos: 0, reinicios: 0,
+    estado: null, ip: null, periodo: null, periodoPedido: null, rtt: null,
+    llegada: null, retenido: false, puntos: [],
+  };
+  nodo.querySelector('.id').textContent = id;
+  nodo.querySelector('.identificar').addEventListener('click', () => {
+    nota(placa, publicar(id, 'identificar') ? 'Orden enviada: mira qué placa parpadea.' : 'Sin conexión con el broker.');
+  });
+  nodo.querySelector('.ping').addEventListener('click', () => {
+    const testigo = Math.random().toString(36).slice(2, 10);
+    app.pings.set(id + ':' + testigo, Date.now());
+    if (!publicar(id, 'ping=' + testigo)) { nota(placa, 'Sin conexión con el broker.'); return; }
+    nota(placa, 'Ping enviado…');
+    setTimeout(() => {
+      if (app.pings.delete(id + ':' + testigo)) { nota(placa, 'Sin respuesta en 10 s.'); }
+    }, 10000);
+  });
+  nodo.querySelector('.selector-periodo').addEventListener('change', (ev) => {
+    const s = Number(ev.target.value);
+    ev.target.value = '';
+    if (!s) { return; }
+    placa.periodoPedido = s;
+    nota(placa, publicar(id, 'periodo=' + s) ? 'Pedido periodo de ' + s + ' s; esperando confirmación…' : 'Sin conexión con el broker.');
+  });
+
+  app.placas.set(id, placa);
+  $('vacio').hidden = true;
+  /* Orden alfabético: cada estudiante encuentra la suya siempre en el mismo sitio. */
+  const despues = [...app.placas.values()].map((p) => p.nodo).filter((n) => n.isConnected)
+    .find((n) => n.querySelector('.id').textContent > id);
+  $('tablero').insertBefore(nodo, despues || null);
+  aplicarFiltro();
+  return placa;
+}
+
+function nota(placa, texto) { placa.nodo.querySelector('.nota').textContent = texto; }
+
+function pintar(placa) {
+  const n = placa.nodo;
+  const temp = n.querySelector('.temp');
+  temp.firstChild.textContent = placa.t === null ? '--' : formato.format(placa.t);
+
+  const est = n.querySelector('.estado');
+  if (placa.estado === 'en_linea') { est.className = 'pastilla ok estado'; est.textContent = 'en línea'; }
+  else if (placa.estado === 'desconectado') { est.className = 'pastilla gris estado'; est.textContent = 'desconectada'; }
+  else { est.className = 'pastilla gris estado'; est.textContent = 'sin estado'; }
+  n.classList.toggle('desconectada', placa.estado === 'desconectado');
+
+  n.querySelector('.rssi').textContent = placa.rssi === null ? '--' : placa.rssi + ' dBm';
+  n.querySelector('.periodo').textContent = placa.periodo === null ? '--' : placa.periodo + ' s';
+  n.querySelector('.seq').textContent = placa.seq === null ? '--' : String(placa.seq);
+  n.querySelector('.huecos').textContent = String(placa.huecos) + (placa.reinicios ? ' · ' + placa.reinicios + ' reinicio(s)' : '');
+  n.querySelector('.ip').textContent = placa.ip || '--';
+  n.querySelector('.rtt').textContent = placa.rtt === null ? '--' : placa.rtt + ' ms';
+  pintarEdad(placa);
+  dibujar(placa);
+}
+
+function pintarEdad(placa) {
+  const e = placa.nodo.querySelector('.edad');
+  if (placa.retenido) { e.textContent = 'último valor retenido (hora desconocida)'; e.className = 'edad'; return; }
+  if (placa.llegada === null) { e.textContent = ''; return; }
+  const s = Math.round((Date.now() - placa.llegada) / 1000);
+  e.textContent = s < 2 ? 'ahora' : 'hace ' + (s < 120 ? s + ' s' : Math.round(s / 60) + ' min');
+  /* Viejo: más de tres periodos sin noticias de una placa que dice estar en línea. */
+  const limite = Math.max(3 * (placa.periodo || 5), 20);
+  e.className = (s > limite && placa.estado === 'en_linea') ? 'edad viejo' : 'edad';
+}
+
+const NS = 'http://www.w3.org/2000/svg';
+function elementoSVG(tipo, atributos) {
+  const el = document.createElementNS(NS, tipo);
+  for (const [k, v] of Object.entries(atributos)) { el.setAttribute(k, v); }
+  return el;
+}
+
+function dibujar(placa) {
+  const svg = placa.nodo.querySelector('.grafica');
+  svg.replaceChildren();
+  const W = 300, H = 92, izq = 30, der = 4, arr = 6, aba = 14;
+  svg.append(elementoSVG('rect', { class: 'marco', x: izq, y: arr, width: W - izq - der, height: H - arr - aba }));
+
+  const ahora = Date.now();
+  const pts = placa.puntos.filter((p) => p.x >= ahora - VENTANA_MS);
+  if (pts.length === 0) {
+    const t = elementoSVG('text', { x: (W + izq) / 2, y: H / 2 + 3, 'text-anchor': 'middle' });
+    t.textContent = placa.retenido ? 'sin muestras en vivo todavía' : 'esperando muestras';
+    svg.append(t);
+    return;
+  }
+  let min = Math.min(...pts.map((p) => p.y)), max = Math.max(...pts.map((p) => p.y));
+  if (max - min < 2) { const c = (max + min) / 2; min = c - 1; max = c + 1; }
+  const margen = (max - min) * 0.1; min -= margen; max += margen;
+
+  const X = (x) => izq + (x - (ahora - VENTANA_MS)) / VENTANA_MS * (W - izq - der);
+  const Y = (y) => arr + (max - y) / (max - min) * (H - arr - aba);
+  const linea = pts.map((p) => X(p.x).toFixed(1) + ',' + Y(p.y).toFixed(1)).join(' ');
+  const base = (H - aba).toFixed(1);
+  svg.append(elementoSVG('polygon', { class: 'area', points: X(pts[0].x).toFixed(1) + ',' + base + ' ' + linea + ' ' + X(pts[pts.length - 1].x).toFixed(1) + ',' + base }));
+  svg.append(elementoSVG('polyline', { class: 'linea', points: linea }));
+
+  const etiqueta = (texto, x, y, ancla) => {
+    const t = elementoSVG('text', { x, y, 'text-anchor': ancla }); t.textContent = texto; svg.append(t);
+  };
+  etiqueta(formato.format(max - margen).replace(/,\d+$/, ''), izq - 4, arr + 9, 'end');
+  etiqueta(formato.format(min + margen).replace(/,\d+$/, ''), izq - 4, H - aba, 'end');
+  etiqueta('−10 min', izq, H - 2, 'start');
+  etiqueta('ahora', W - der, H - 2, 'end');
+}
+
+function aplicarFiltro() {
+  const f = inFiltro.value.trim().toLowerCase();
+  guardarPreferencia('filtro', inFiltro.value.trim());
+  for (const p of app.placas.values()) { p.nodo.hidden = f !== '' && !p.id.toLowerCase().includes(f); }
+}
+
+/* La edad y la gráfica avanzan aunque no lleguen mensajes. */
+setInterval(() => {
+  for (const p of app.placas.values()) { pintarEdad(p); dibujar(p); }
+}, 1000);
+
+/* --------------------------------------------------------------- demo */
+
+const demo = { temporizadores: [], placas: [] };
+
+function arrancarDemo() {
+  pararDemo();
+  ponerEstado('ok', 'modo demo', 'tres placas simuladas, sin broker');
+  botonConectar.textContent = 'Desconectar';
+  const llegar = (id, tipo, obj, retenido) => {
+    const tema = app.raiz + '/' + id + '/' + tipo;
+    procesar(tema, new TextEncoder().encode(typeof obj === 'string' ? obj : JSON.stringify(obj)), !!retenido);
+  };
+  demo.llegar = llegar;
+  demo.placas = [
+    { id: 'kaluga-1a2b3c', t: 41.2, periodo: 5, seq: 0, ip: '192.168.1.37', rssi: -55, viva: true },
+    { id: 'kaluga-7f00e1', t: 44.8, periodo: 2, seq: 0, ip: '192.168.1.52', rssi: -71, viva: true },
+    { id: 'kaluga-c0ffee', t: 39.5, periodo: 5, seq: 0, ip: '192.168.1.60', rssi: -63, viva: true },
+  ];
+  /* Un retenido viejo, de una placa que ya no está. */
+  llegar('kaluga-fe0d12', 'estado', { estado: 'desconectado' }, true);
+  llegar('kaluga-fe0d12', 'temperatura', { t: 38.06, rssi: -80, seq: 912, edad: 0 }, true);
+
+  for (const p of demo.placas) {
+    llegar(p.id, 'estado', { estado: 'en_linea', ip: p.ip, periodo: p.periodo, version: 'clase6-1.0' }, true);
+    /* Historia de los últimos minutos, como si la red hubiera vuelto. */
+    for (let k = 90; k > 0; k--) {
+      p.t += (Math.random() - 0.5) * 0.25;
+      llegar(p.id, 'temperatura', { t: Math.round(p.t * 100) / 100, rssi: p.rssi, seq: p.seq++, edad: k * p.periodo * 1000 }, false);
+    }
+    demoPublicarCada(p);
+  }
+  /* La tercera "se desenchufa" a los 25 s: llega su última voluntad. */
+  demo.temporizadores.push(setTimeout(() => {
+    const p = demo.placas[2]; p.viva = false;
+    llegar(p.id, 'estado', { estado: 'desconectado' }, false);
+  }, 25000));
+}
+
+function demoPublicarCada(p) {
+  const tick = () => {
+    if (!p.viva) { return; }
+    p.t += (Math.random() - 0.5) * 0.3;
+    if (Math.random() < 0.03) { p.seq++; }            /* algún hueco */
+    demo.llegar(p.id, 'temperatura', { t: Math.round(p.t * 100) / 100, rssi: p.rssi + Math.round((Math.random() - 0.5) * 4), seq: p.seq++, edad: 0 }, false);
+    p.timer = setTimeout(tick, p.periodo * 1000);
+    demo.temporizadores.push(p.timer);
+  };
+  p.timer = setTimeout(tick, 600);
+  demo.temporizadores.push(p.timer);
+}
+
+function demoOrden(id, texto) {
+  const p = demo.placas.find((q) => q.id === id);
+  if (!p || !p.viva) { return; }
+  const responder = (fn) => demo.temporizadores.push(setTimeout(fn, 80 + Math.random() * 120));
+  if (texto.startsWith('periodo=')) {
+    p.periodo = Number(texto.slice(8));
+    clearTimeout(p.timer); demoPublicarCada(p);
+    responder(() => demo.llegar(id, 'estado', { estado: 'en_linea', ip: p.ip, periodo: p.periodo, version: 'clase6-1.0' }, false));
+  } else if (texto.startsWith('ping=')) {
+    responder(() => demo.llegar(id, 'eco', texto.slice(5), false));
+  }
+}
+
+function pararDemo() {
+  for (const t of demo.temporizadores) { clearTimeout(t); }
+  demo.temporizadores = [];
+  for (const p of demo.placas) { p.viva = false; }
+}
+
+/* -------------------------------------------------------------- arranque */
+
+for (const [clave, b] of Object.entries(BROKERS)) {
+  const o = document.createElement('option');
+  o.value = clave; o.textContent = b.nombre;
+  selBroker.append(o);
+}
+selBroker.value = BROKERS[leerPreferencia('broker', 'hivemq')] ? leerPreferencia('broker', 'hivemq') : 'hivemq';
+/* ?raiz=... en la dirección manda sobre lo guardado: así se comparte un
+ * enlace que ya apunta a los temas de un grupo. */
+inRaiz.value = PARAMS.get('raiz') || leerPreferencia('raiz', 'ucu-se2026');
+inFiltro.value = leerPreferencia('filtro', '');
+
+botonConectar.addEventListener('click', () => {
+  if (app.cliente || app.quiereConectado) { cerrar(true); } else { conectar(); }
+});
+inFiltro.addEventListener('input', aplicarFiltro);
+selBroker.addEventListener('change', () => { if (app.quiereConectado) { conectar(); } });
+
+/* Al abrir la página se conecta sola: en clase, una cosa menos que explicar. */
+conectar();
+</script>
+</body>
+</html>
